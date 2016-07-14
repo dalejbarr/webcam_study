@@ -1,0 +1,58 @@
+#+TITLE: Dissociating perceptual and pragmatic cues in reference generation
+#+AUTHOR: Kieran O'Shea and Dale Barr
+
+* Contents of this repository
+
+| =data_derived/=                       | where analysis data will be stored                        |
+| =data_raw/=                           | sqlite databases with experiment data                     |
+| =data_raw/EESP4_Speaker.db=           | db for speaker (director's) computer                      |
+| =data_raw/EESP4_Listener.db=          | db for listeners' (matchers') computer                    |
+| =data_raw/EESP4_Practice_Speaker.db=  | db for speaker practice trials                            |
+| =data_raw/EESP4_Practice_Listener.db= | db for listener practice trials                           |
+| =data_raw/itm_sets.rds=               | R binary file containing information about stimulus items |
+| =data_raw/conditions.rds=             | R binary file with info on experimental conditions        |
+| =stim_control/=                       | files needed for running experiment                       |
+| =stim_control/common/=                | files needed for director and matcher                     |
+| =stim_control/common/exp2=            | executable for running experiment (ubuntu linux, 64bit)   |
+| =stim_control/common/resource=        | stimulus images                                           |
+| =stim_control/director/=              | scripts for launching experiment (director's computer)    |
+| =stim_control/src/=                   | source files for =exp2= binary                            |
+
+- /Note/: the experimental design is completely described by data
+  contained in the tables =EESP4_Speaker.db=.  This will also contain
+  some of the behavioral data that will be collected.  Sessions 1-40
+  are the main experimental sessions; sessions 1000-1039 are for
+  piloting/experimenter practice only.
+
+- For privacy reasons, the sound files containing directors' spoken
+  responses will not be included in the repository.  Instead, we will
+  post the transcriptions along with the speech coding
+
+* Running the experiment
+
+- To run the experiment you will need two PCs running Ubuntu Linux
+  14.04.1 LTS 64-bit (one for the director and one for the matcher) in
+  adjacent rooms, each connected to a monitor set to a resolution of
+  1280 x 1024 pixels.  Connect a webcam from the matchers' computer to
+  a USB port on the director's computer.  You will also need sound
+  equipment to reproduce our audio setup (we have two mixing boards,
+  one with a crossfader, two microphones, and three headphones).
+  Create a folder =director/= in the main user's home directory on the
+  director's computer.  Copy the files from =common/= and =director/=
+  into that directory, in addition to =data_raw/EESP4_Speaker.db= and
+  =data_raw/EESP4_Practice_Speaker.db=.  On the matchers' computer
+  create a directory =matcher/= in the main user's home directory, and
+  copy in the contents of =common/= and =matcher/= along with the
+  files =data_raw/EESP4_Listener.db= and
+  =data_raw/EESP4_Practice_Listener.db=.  You will also need to change
+  an entry in the =EXPConfig= table of the =EESP4_Speaker.db= and
+  =EESP4_Practice_Speaker.db= databases.  Currently the entry for
+  =SOCKET_CLIENT= is =1 yap:4545=; 'yap' is the name of the matcher's
+  computer on our local network.  Change this to the name or IP
+  address of the computer on your own network.  You will also need to
+  update the host name in =director/run_matcher.sh=.
+
+- To launch the experiment, open a terminal window and go to
+  =director/=.  Type =./run.sh XXXX= substituting the session number
+  (1-40) for XXXX.  This will also launch the experiment on the
+  matcher's PC.
