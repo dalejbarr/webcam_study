@@ -1,6 +1,6 @@
 #+TITLE: Miscellaneous scripts
 
-* extract speech audio channel (need sox)
+* extract speech audio channel (need sox), make coding template 
 
 #+BEGIN_SRC R :tangle extract_speech_channel.R
   library("dplyr")
@@ -92,4 +92,76 @@
     left_join(itm, "Series") %>%
     select(Session = Dir, Filename, Series, TargComp) %>%
     write.csv(row.names = FALSE, file = "speech_coding/coding_template.csv")
+#+END_SRC
+
+* assign conditions for unconventional
+
+#+BEGIN_SRC R
+	library("dplyr")
+	library("tidyr")
+
+	con <- src_sqlite("../data_raw/EESP4_Speaker.db")
+
+	trials <- tbl(con, "Trial") %>%
+		inner_join(tbl(con, "Item"), "ItemCellID") %>%
+		collect() %>%
+		mutate(tlen = End - Begin) %>%
+		filter(TemplateID == 2L, SessionID >= 1000L) %>%
+		select(SessionID, Ord = TrialOrder, ItemCellID, tlen)
+
+	aoi <- tbl(con, "AOI") %>%
+		filter(Link == "itemcell", Name != "Highlight",
+					 Name != "Filler", Name != "Target") %>%
+		select(ItemCellID = ID, Name) %>% collect()
+
+	sess <- tbl(con, "Session") %>% collect() %>%
+		filter(SessionID < 998L) %>%
+		select(SessionID, ListID)
+
+	lord <- tbl(con, "ListOrder") %>%
+		filter(ListID <= 40L) %>%
+		inner_join(tbl(con, "Item"), "ItemCellID") %>%
+		inner_join(tbl(con, "Phase"), "PhaseID") %>%
+		collect() %>%
+		group_by(ListID) %>%
+		arrange(BlockID, OrderConstraint.y, OrderConstraint.x) %>%
+		mutate(Ord = row_number()) %>% ungroup() %>%
+		select(ListID, BlockID, ItemCellID, Cell, PhaseID, Item, TemplateID, Ord,
+					 OrderConstraint = OrderConstraint.x)
+
+	res <- tbl(con, "Resource") %>%
+		filter(Code == "SFILE") %>%
+		select(ItemCellID, Wavfile = Data) %>% collect()
+
+	test_itms <- lord %>%
+		filter(grepl("^F_uncv_[0-9]{2}$", Item)) %>%
+		mutate(ItemID = substr(Item, 8, 9)) %>%
+		inner_join(res, "ItemCellID") %>%
+		select(ListID, ItemCellID, Item, Wavfile, ItemID, Cell, PhaseID) 
+
+	phase_cond <- lord %>%
+		filter(TemplateID == 2L) %>%  
+		inner_join(sess, "ListID") %>%
+		mutate(Phase = ifelse(OrderConstraint == 1L, "train", "test")) %>%
+		select(SessionID, PhaseID, Item, Phase) %>%
+		spread(Phase, Item) %>%
+		mutate(PragCon = substr(train, 1, 6) == substr(test, 1, 6),
+					 PercCon = substr(train, 1, 6) == substr(test, 8, 13)) %>%
+		select(-(test:train))
+
+	conds <- phase_cond %>%
+		inner_join(sess, "SessionID") %>%
+		inner_join(test_itms, c("ListID", "PhaseID")) %>%
+		select(SessionID, ItemID, Wavfile, PhaseID, PragCon, PercCon)
+
+	conds %>%
+		count(ItemID, PercCon, PragCon) %>% as.data.frame()
+
+	conds %>%
+		count(SessionID, PercCon, PragCon) %>% as.data.frame()
+
+	conds %>%
+		count(PercCon, PragCon)
+
+	saveRDS(conds, "../data_raw/conditions_unconventional_target.rds")
 #+END_SRC
