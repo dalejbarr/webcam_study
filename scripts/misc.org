@@ -3,95 +3,144 @@
 * extract speech audio channel (need sox), make coding template 
 
 #+BEGIN_SRC R :tangle extract_speech_channel.R
-  library("dplyr")
-  library("tidyr")
-  library("purrr")
+	library("dplyr")
+	library("tidyr")
+	library("purrr")
 
-  extract_channel <- function(SessionID, Dir, Filename, Chan) {
-    ifile <- paste0("response/", Dir, "/", Filename)
-    ofile <- paste0("speech_coding/", Dir, "/", Filename)
-    chan <- ifelse(Chan == "left", 1L, 2L)
-    cmd <- paste0("sox ", ifile, " ", ofile, " remix ", chan)
-    system(cmd)
-  }
+	extract_channel <- function(SessionID, Dir, Filename, Chan) {
+		ifile <- paste0("response/", Dir, "/", Filename)
+		ofile <- paste0("speech_coding/", Dir, "/", Filename)
+		chan <- ifelse(Chan == "left", 1L, 2L)
+		cmd <- paste0("sox ", ifile, " ", ofile, " remix ", chan)
+		system(cmd)
+	}
 
-  itm <- readRDS("data_raw/itm_sets.rds") %>%
-    filter(Name %in% c("Target", "Competitor")) %>%
-    spread(Name, Resource) %>%
-    mutate(TargComp = paste0(Target, " / ", Competitor)) %>%
-    select(Series, TargComp)
+	itm <- readRDS("data_raw/itm_sets.rds") %>%
+		filter(Name %in% c("Target", "Competitor")) %>%
+		spread(Name, Resource) %>%
+		mutate(TargComp = paste0(Target, " / ", Competitor)) %>%
+		select(Series, TargComp)
 
-  con <- src_sqlite("data_raw/EESP4_Speaker.db")
+	con <- src_sqlite("data_raw/EESP4_Speaker.db")
 
-  sess <- tbl(con, "Session") %>%
-    filter(SessionID < 998L)
+	sess <- tbl(con, "Session") %>%
+		filter(SessionID < 998L)
 
-  conds <- tbl(con, "Item") %>%
-    filter(TemplateID == 2L) %>%
-    inner_join(tbl(con, "Resource"), "ItemCellID") %>%
-    filter(Code == "LISTENING") %>%
-    select(-Cell, -ResID, -TemplateID) %>% collect()
+	conds <- tbl(con, "Item") %>%
+		filter(TemplateID == 2L) %>%
+		inner_join(tbl(con, "Resource"), "ItemCellID") %>%
+		filter(Code == "LISTENING") %>%
+		select(-Cell, -ResID, -TemplateID) %>% collect()
 
-  ## determine addressee identity (orange/yellow) for each phase
-  ## and thus which channel of the stereo file has the speech data
-  all_items <- sess %>%
-    inner_join(tbl(con, "ListOrder") %>%
-               filter(PhaseID <= 12L), "ListID") %>%
-    inner_join(tbl(con, "Item"), "ItemCellID") %>%
-    select(SessionID, ListID, ListOrderID, TemplateID,
-           ItemCellID, PhaseID, OrderConstraint) %>%
-    arrange(SessionID, PhaseID, OrderConstraint)
+	## determine addressee identity (orange/yellow) for each phase
+	## and thus which channel of the stereo file has the speech data
+	all_items <- sess %>%
+		inner_join(tbl(con, "ListOrder") %>%
+							 filter(PhaseID <= 12L), "ListID") %>%
+		inner_join(tbl(con, "Item"), "ItemCellID") %>%
+		select(SessionID, ListID, ListOrderID, TemplateID,
+					 ItemCellID, PhaseID, OrderConstraint) %>%
+		arrange(SessionID, PhaseID, OrderConstraint)
 
-  conds <- all_items %>%
-    filter(TemplateID == 2L) %>%
-    inner_join(tbl(con, "Resource"), "ItemCellID") %>%
-    filter(Code == "LISTENING") %>%
-    collect() %>%
-    mutate(Addr = sub("^instr/(yellow|orange)\\.png$", "\\1", Data),
-           Phase = ifelse(OrderConstraint == 1L, "train", "test")) %>%
-    select(SessionID, Block = PhaseID, Phase, Addr,
-           OC = OrderConstraint) %>% collect()
-  
-  pinfo <- conds %>%
-    select(-OC) %>%
-    spread(Phase, Addr) %>%
-    inner_join(conds %>% filter(OC != 1L) %>% select(-Addr, -Phase),
-               c("SessionID", "Block"))
+	conds <- all_items %>%
+		filter(TemplateID == 2L) %>%
+		inner_join(tbl(con, "Resource"), "ItemCellID") %>%
+		filter(Code == "LISTENING") %>%
+		collect() %>%
+		mutate(Addr = sub("^instr/(yellow|orange)\\.png$", "\\1", Data),
+					 Phase = ifelse(OrderConstraint == 1L, "train", "test")) %>%
+		select(SessionID, Block = PhaseID, Phase, Addr,
+					 OC = OrderConstraint) %>% collect()
 
-  iinfo <- all_items %>%
-    filter(TemplateID == 1L) %>%
-    inner_join(tbl(con, "Resource") %>%
-               filter(Code == "SFILE"), "ItemCellID") %>%
-    select(SessionID, ItemCellID, PhaseID, OrderConstraint, Data) %>%
-    collect() %>%
-    rename(Block = PhaseID) %>%
-    mutate(Item = sub("^([A-Z]{1}_.+)_.+", "\\1", Data)) %>%
-    group_by(SessionID, Block, Item) %>%
-    arrange(desc(OrderConstraint)) %>%
-    slice(1L) %>% ungroup() %>%
-    filter(substr(Item, 3, 6) != "conv")
+	pinfo <- conds %>%
+		select(-OC) %>%
+		spread(Phase, Addr) %>%
+		inner_join(conds %>% filter(OC != 1L) %>% select(-Addr, -Phase),
+							 c("SessionID", "Block"))
 
-  files_todo <- pinfo %>%
-    inner_join(iinfo, c("SessionID", "Block")) %>%
-    mutate(Addr = ifelse(OrderConstraint < OC, train, test),
-           Chan = ifelse(Addr == "yellow", "right", "left"),
-           Dir = sprintf("s%07d", SessionID)) %>%
-    select(SessionID, Dir, Filename = Data, Chan)
+	iinfo <- all_items %>%
+		filter(TemplateID == 1L) %>%
+		inner_join(tbl(con, "Resource") %>%
+							 filter(Code == "SFILE"), "ItemCellID") %>%
+		select(SessionID, ItemCellID, PhaseID, OrderConstraint, Data) %>%
+		collect() %>%
+		rename(Block = PhaseID) %>%
+		mutate(Item = sub("^([A-Z]{1}_.+)_.+", "\\1", Data)) %>%
+		group_by(SessionID, Block, Item) %>%
+		arrange(desc(OrderConstraint)) %>%
+		slice(1L) %>% ungroup() %>%
+		filter(substr(Item, 3, 6) != "conv")
 
-  ## create dirs as needed
-  files_todo %>%
-    `[[`("Dir") %>% unique() %>%
-    walk(function(x) paste0("mkdir -p speech_coding/", x) %>% system())
+	files_todo <- pinfo %>%
+		inner_join(iinfo, c("SessionID", "Block")) %>%
+		mutate(Addr = ifelse(OrderConstraint < OC, train, test),
+					 Chan = ifelse(Addr == "yellow", "right", "left"),
+					 Dir = sprintf("s%07d", SessionID)) %>%
+		select(SessionID, Dir, Filename = Data, Chan)
 
-  ## extract relevant channel
-  invoke_rows(extract_channel, files_todo) %>% invisible()
+	## create dirs as needed
+	files_todo %>%
+		`[[`("Dir") %>% unique() %>%
+		walk(function(x) paste0("mkdir -p speech_coding/", x) %>% system())
 
-  ft2 <- files_todo %>%
-    mutate(Series = ifelse(substr(Filename, 1, 1) %in% c("T", "Z"),
-                  as.integer(substr(Filename, 3, 4)), NA_integer_)) %>%
-    left_join(itm, "Series") %>%
-    select(Session = Dir, Filename, Series, TargComp) %>%
-    write.csv(row.names = FALSE, file = "speech_coding/coding_template.csv")
+	## extract relevant channel
+	invoke_rows(extract_channel, files_todo) %>% invisible()
+
+	ft2 <- files_todo %>%
+		mutate(Series = ifelse(substr(Filename, 1, 1) %in% c("T", "Z"),
+									as.integer(substr(Filename, 3, 4)), NA_integer_)) %>%
+		left_join(itm, "Series") %>%
+		select(Session = Dir, Filename, Series, TargComp) # %>%
+		## write.csv(row.names = FALSE, file = "speech_coding/coding_template.csv")
+#+END_SRC
+
+** double check that we are loading in the right ones
+
+#+BEGIN_SRC R
+	library("readr")
+	library("dplyr")
+	library("tidyr")
+
+	con <- src_sqlite("../data_raw/EESP4_Speaker.db")
+
+	codg <- read_csv("../speech_coding/coding_template.csv") %>%
+		mutate(SessionID = sub("s([0-9]{7})", "\\1", Session) %>%
+						 as.integer())
+
+	sess <- tbl(con, "Session") %>%
+		select(SessionID, ListID) %>%
+		filter(SessionID < 998L) %>%
+		collect()
+
+	sfiles <- tbl(con, "ListOrder") %>%
+		inner_join(tbl(con, "Item"), "ItemCellID") %>%
+		inner_join(tbl(con, "Resource") %>% filter(Code == "SFILE"), "ItemCellID") %>%
+		select(ListID, PhaseID, Ord = OrderConstraint, ItemCellID, Item, Data) %>%
+		arrange(ListID, PhaseID, Ord) %>% collect() %>%
+		mutate(Series = sub("^(F_uncv_|F_conv_)?([0-9]{2}).*$", "\\2", Item) %>%
+						 as.integer(),
+					 Type = sub("^.*(trn|uncv|conv|tst).*$", "\\1", Item))
+
+	transition <- tbl(con, "ListOrder") %>%
+		inner_join(tbl(con, "Item"), "ItemCellID") %>%
+		filter(TemplateID == 2L, ListID != 999L, OrderConstraint != 1L) %>%
+		select(ListID, PhaseID, Trans = OrderConstraint) %>% collect() 
+
+	phased <- sfiles %>%
+		inner_join(transition, c("ListID", "PhaseID")) %>%
+		mutate(phs = ifelse(Ord < Trans, "train", "test")) %>%
+		select(-ItemCellID, -Trans)
+
+	file_check <- phased %>%
+		group_by(ListID, PhaseID, phs, Series) %>%
+		arrange(desc(Ord)) %>%
+		slice(1L) %>% ungroup() %>%
+		inner_join(sess, "ListID") %>%
+		mutate(Session = sprintf("s%07d", SessionID)) %>%
+		select(Session, Filename = Data, Series, Type, phs)
+
+	stopifnot(anti_join(file_check, codg, c("Session", "Filename")) %>%
+		filter(Type != "conv") %>% nrow() == 0L)
 #+END_SRC
 
 * assign conditions for unconventional
